@@ -1,0 +1,401 @@
+* Importing data;
+proc import datafile= "Z:\Downloads\ HR.csv"
+    dbms=csv
+    out=work.HRDATA
+    replace;
+run;
+
+/* Contents of imported data */
+proc contents data=HRDATA;
+run;
+
+
+/*Transforming Categorical variables*/
+data HRDATA_Transformed;
+    set HRDATA;
+    
+    /* Binary Coding */
+    if Attrition = 'Yes' then Attrition_Num = 1; else Attrition_Num = 0;
+    if OverTime = 'Yes' then OverTime_Num = 1; else OverTime_Num = 0;
+    
+    /* Ordinal Coding */
+    if BusinessTravel = 'Non-Travel' then BusinessTravel_Num = 0;
+    else if BusinessTravel = 'Travel_Rarely' then BusinessTravel_Num = 1;
+    else if BusinessTravel = 'Travel_Frequently' then BusinessTravel_Num = 2;
+
+    if Gender = 'Male' then Gender_Num = 1; else Gender_Num = 0;
+
+    if MaritalStatus = 'Single' then MaritalStatus_Num = 0;
+    else if MaritalStatus = 'Divorced' then MaritalStatus_Num = 1;
+    else if MaritalStatus = 'Married' then MaritalStatus_Num = 2;
+
+	/* Create Dummy Variables for JobRole */
+    if JobRole = 'Sales Executive' then JobRole_SalesExec = 1; else JobRole_SalesExec = 0;
+    if JobRole = 'Research Scientist' then JobRole_ResearchSci = 1; else JobRole_ResearchSci = 0;
+    if JobRole = 'Laboratory Technician' then JobRole_LabTech = 1; else JobRole_LabTech = 0;
+    if JobRole = 'Manufacturing Director' then JobRole_ManufDir = 1; else JobRole_ManufDir = 0;
+    if JobRole = 'Healthcare Representative' then JobRole_HealthRep = 1; else JobRole_HealthRep = 0;
+    if JobRole = 'Manager' then JobRole_Manager = 1; else JobRole_Manager = 0;
+    if JobRole = 'Sales Representative' then JobRole_SalesRep = 1; else JobRole_SalesRep = 0;
+    if JobRole = 'Research Director' then JobRole_ResearchDir = 1; else JobRole_ResearchDir = 0;
+    if JobRole = 'Human Resources' then JobRole_HR = 1; else JobRole_HR = 0;
+
+		/* Create Dummy Variables for Department */
+    if Department = 'Sales' then Dept_Sales = 1; else Dept_Sales = 0;
+	if Department = 'Research & Development' then Dept_RD = 1; else Dept_RD = 0;
+    if Department = 'Human Resources' then Dept_HR = 1; else Dept_HR = 0;
+
+
+run;
+
+
+/* Contents imported data */
+PROC CONTENTS data=HRDATA_Transformed;
+run;
+
+
+/*summary Stats
+
+/* Summary Statistics */
+proc means data=HRDATA_Transformed n nmiss mean std min max median;
+var 
+	age
+	Gender_Num
+	MonthlyIncome
+	YearsAtCompany
+    BusinessTravel_Num
+	OverTime_Num 
+	StockOptionLevel
+	DistanceFromHome
+	jobsatisfaction
+	NumCompaniesWorked
+    Dept_Sales 
+	YearsSinceLastPromotion
+	BusinessTravel_Num 
+	TrainingTimesLastYear
+	WorkLifeBalance 
+	RelationshipSatisfaction
+	EnvironmentSatisfaction
+; title "Summary Stats";
+run;
+
+/*Summary Statistics */
+
+
+
+/* Sub Sample Analysis of the Dataset */
+proc means data=HRDATA_Transformed n nmiss mean std min max median;
+class Attrition_Num;
+var 
+	age
+	Gender_Num
+	MonthlyIncome
+	YearsAtCompany
+    BusinessTravel_Num
+	OverTime_Num 
+	StockOptionLevel
+	DistanceFromHome
+	jobsatisfaction
+	NumCompaniesWorked
+	YearsSinceLastPromotion
+	BusinessTravel_Num 
+	TrainingTimesLastYear
+	WorkLifeBalance 
+	RelationshipSatisfaction
+	EnvironmentSatisfaction
+;
+title "Summary Statistics for Continuous Variables by Attrition Status";
+run;
+
+
+/*_____EDA___________*/
+/* Step 1: Calculate Total Count per Department */
+proc sql;
+    create table DeptTotal as
+    select 
+        Department,
+        count(*) as TotalCount
+    from HRDATA_Transformed
+    group by Department;
+quit;
+
+/* Step 2: Calculate Attrition Count and Join with Total Count to Get Percentage */
+proc sql;
+    create table DeptAttritionPct as
+    select 
+        a.Department,
+        a.Attrition_Num,
+        count(*) as Count,
+        (count(*) * 100.0 / b.TotalCount) as Attrition_Pct
+    from HRDATA_Transformed as a
+    left join DeptTotal as b
+    on a.Department = b.Department
+    group by a.Department, a.Attrition_Num;
+quit;
+
+proc sort data=DeptAttritionPct nodupkey;
+    by Department Attrition_Num;
+run;
+
+proc sgplot data=DeptAttritionPct;
+    vbar Department / response=Attrition_Pct group=Attrition_Num groupdisplay=cluster datalabel;
+    xaxis label="Department";
+    yaxis label="Attrition Percentage" grid;
+    keylegend / title="Attrition Status";
+    title "Percentage of Attrition by Department";
+run;
+
+
+
+
+proc sgplot data=HRDATA_Transformed;
+    scatter x=Age y=MonthlyIncome / group=Attrition_Num markerattrs=(symbol=circlefilled);
+    title "Age vs. Monthly Income by Attrition";
+    xaxis label="Age";
+    yaxis label="Monthly Income";
+run;
+
+
+/*Avetage Income by Age/Attrition
+/* Step 1: Create Age Buckets */
+data HRDATA_Bucketed;
+    set HRDATA_Transformed;
+    length Age_Bucket $10;
+    if 20 <= Age < 25 then Age_Bucket = '20-25';
+    else if 25 <= Age < 30 then Age_Bucket = '25-30';
+    else if 30 <= Age < 35 then Age_Bucket = '30-35';
+    else if 35 <= Age < 40 then Age_Bucket = '35-40';
+    else if 40 <= Age < 45 then Age_Bucket = '40-45';
+    else if 45 <= Age < 50 then Age_Bucket = '45-50';
+    else if 50 <= Age < 55 then Age_Bucket = '50-55';
+    else if 55 <= Age <= 60 then Age_Bucket = '55-60';
+run;
+
+/* Step 2: Calculate Average Monthly Income by Age Bucket and Attrition */
+proc means data=HRDATA_Bucketed noprint;
+    class Age_Bucket Attrition_Num;
+    var MonthlyIncome;
+    output out=AvgIncomeByBucket mean=Avg_MonthlyIncome;
+run;
+
+/* Step 3: Round Average Monthly Income */
+data AvgIncomeByBucket;
+    set AvgIncomeByBucket;
+    Avg_MonthlyIncome = round(Avg_MonthlyIncome, 1); /* Round to whole number */
+run;
+
+/* Step 4: Plot Average Monthly Income by Age Bucket and Attrition */
+proc sgplot data=AvgIncomeByBucket;
+    vbar Age_Bucket / response=Avg_MonthlyIncome group=Attrition_Num groupdisplay=cluster datalabel;
+    xaxis label="Age Bucket";
+    yaxis label="Average Monthly Income";
+    title "Average Monthly Income by Age Bucket and Attrition";
+    keylegend / title="Attrition Status";
+run;
+
+
+
+
+
+proc sgplot data=HRDATA_Transformed;
+    vbox MonthlyIncome / category=Attrition_Num;
+    title "Monthly Income by Attrition Status";
+    xaxis label="Attrition Status (0 = Stayed, 1 = Left)";
+    yaxis label="Monthly Income";
+run;
+
+
+
+proc sgplot data=HRDATA_Transformed;
+    histogram Age / group=Attrition_Num transparency=0.5;
+    density Age / group=Attrition_Num type=kernel;
+    title "Age Distribution by Attrition Status";
+    xaxis label="Age";
+    yaxis label="Frequency";
+run;
+
+proc sgplot data=HRDATA_Transformed;
+    vbar BusinessTravel_Num / group=Attrition_Num groupdisplay=cluster;
+    title "Attrition by Business Travel Frequency";
+    xaxis label="Business Travel Frequency";
+    yaxis label="Count";
+run;
+
+/* Step 1: Create Age Buckets */
+data HRDATA_Bucketed;
+    set HRDATA_Transformed;
+    length Age_Bucket $10;
+    if 20 <= Age < 25 then Age_Bucket = '<25';
+    else if 25 <= Age < 30 then Age_Bucket = '25-30';
+    else if 30 <= Age < 35 then Age_Bucket = '30-35';
+    else if 35 <= Age < 40 then Age_Bucket = '35-40';
+    else if 40 <= Age < 45 then Age_Bucket = '40-45';
+    else if 45 <= Age < 50 then Age_Bucket = '45-50';
+    else if 50 <= Age < 55 then Age_Bucket = '50-55';
+    else  Age_Bucket = '>60';
+run;
+
+/* Step 2: Calculate Average Job Satisfaction by Age Bucket and Attrition */
+proc means data=HRDATA_Bucketed noprint;
+    class Age_Bucket Attrition_Num;
+    var JobSatisfaction;
+    output out=AvgJobSatisfaction mean=Avg_JobSatisfaction;
+run;
+
+/* Step 3: Round Average Job Satisfaction to Two Decimal Places */
+data AvgJobSatisfaction;
+    set AvgJobSatisfaction;
+    Avg_JobSatisfaction = round(Avg_JobSatisfaction, 0.01); /* Round to two decimal places */
+run;
+
+/* Step 4: Plot Average Job Satisfaction by Age Bucket and Attrition */
+proc sgplot data=AvgJobSatisfaction;
+    vbar Age_Bucket / response=Avg_JobSatisfaction group=Attrition_Num groupdisplay=cluster datalabel datalabelattrs=(size=10);
+    xaxis label="Age Bucket";
+    yaxis label="Average Job Satisfaction" values=(1.5 to 4 by 0.2);
+    title "Average Job Satisfaction by Age Bucket and Attrition Status";
+    keylegend / title="Attrition Status";
+run;
+
+/*____Segmentation____*/
+
+
+/* Segmentation using k-means clustering */
+proc fastclus data=HRDATA_Transformed maxclusters=3 out=SegmentedData;
+    var 
+	MonthlyIncome
+	BusinessTravel_Num 
+	TrainingTimesLastYear
+	WorkLifeBalance 
+	RelationshipSatisfaction
+	EnvironmentSatisfaction
+	;
+run;
+
+proc tabulate data=SegmentedData;
+    class Cluster;
+    var  
+	MonthlyIncome
+	BusinessTravel_Num 
+	TrainingTimesLastYear
+	WorkLifeBalance 
+	RelationshipSatisfaction
+	EnvironmentSatisfaction
+	;
+    table Cluster, 
+          ( 
+MonthlyIncome
+	BusinessTravel_Num 
+	TrainingTimesLastYear
+	WorkLifeBalance 
+	RelationshipSatisfaction
+	EnvironmentSatisfaction) * (mean std);
+    title "Segment Profile by Cluster - Mean and Standard Deviation";
+run;
+
+/* Viewing the contents of segmented data */
+proc contents data=SegmentedData;
+run;
+
+
+proc export data=SegmentedData
+    outfile="Z:\Downloads\SegmentedData.xlsx"
+    dbms=xlsx
+    replace;
+run;
+
+
+/*_______Survival Analysis________*/
+
+
+
+data HRDATA_SURV;
+    set HRDATA_Transformed;
+    Event=Attrition_Num;
+    Time = YearsAtCompany;
+run;
+
+
+proc lifetest data=HRDATA_SURV plots=(s);
+    time Time * Event(0);
+    strata Department; /* Optional: Stratify by Department or any other categorical variable */
+run;
+
+
+
+
+/* Baseline Cox Proportional Hazards Model */
+proc phreg data=SegmentedData;
+    /* Categorical Variables */
+    class cluster(ref='2') Gender_Num(ref='0') BusinessTravel_Num(ref='0') 
+			OverTime_Num(ref='0') JobRole(ref='Sales Executive') / param=ref;
+    
+    /* Model Statement */
+    model YearsAtCompany*Attrition_Num(0) = 
+        Gender_Num Age 
+		 NumCompaniesWorked
+		OverTime_Num
+		StockOptionLevel
+        Dept_Sales
+        DistanceFromHome 
+		JobSatisfaction 
+		YearsSinceLastPromotion
+		cluster/ ties=efron;
+
+    title 'Baseline Cox Proportional Hazards Model for Employee Attrition';
+run;
+
+
+/* Kaplan Meier Estimation */
+ods	graphics on;
+proc lifetest data=SegmentedData plots=survival (atrisk=0);
+    time YearsAtCompany*Attrition_Num(0);
+    strata cluster; /* Example of stratifying by employed status, you can stratify by other variables */
+	ods select survivalplot;
+	title " Survival";
+run;
+
+
+/* Kaplan Meier Estimation */
+ods graphics on;
+
+proc lifetest data=SegmentedData method=LT intervals=(0 TO 36 by 1) plots=(survival) outsurv=survdata;
+	
+	time YearsAtCompany*Attrition_Num(0);
+	strata cluster;
+run;
+
+ods graphics on;
+/*survdata*/
+proc sgplot data=survdata;
+	title 'Survival Probability Estimates';
+	series x=YearsAtCompany y=Survival / group=cluster;
+	YAXIS min=0.0;
+run;
+
+
+
+/* Interaction Cox Proportional Hazards Model */
+proc phreg data=SegmentedData;
+    /* Categorical Variables */
+    class MaritalStatus_num(ref='2') cluster(ref='2') Gender_Num(ref='0') 
+	BusinessTravel_Num(ref='0') OverTime_Num(ref='0') 
+	JobRole(ref='Sales Executive') / param=ref;
+    
+    /* Model Statement */
+    model YearsAtCompany*Attrition_Num(0) =      
+	BusinessTravel_Num*OverTime_Num age
+	StockOptionLevel
+	StockOptionLevel*age
+	age*jobsatisfaction
+	NumCompaniesWorked
+    Dept_Sales 
+	YearsSinceLastPromotion*cluster
+	/ ties=efron;
+
+    title 'Baseline Cox Proportional Hazards Model for Employee Attrition';
+run;
+
+
+
+
